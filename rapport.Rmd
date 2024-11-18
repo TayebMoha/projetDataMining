@@ -1,29 +1,403 @@
 ---
-title: "rapportbasket"
-author: "Ludanatay"
-date: "2024-10-16"
-output: pdf_document
+title: "Analyse des Performances de l'Équipe de Basket-Ball Cholet en ProA"
+author: "Ludjie Alnatas, Anaëlle Goncalves, Tayeb Mohammedi"
+output: 
+  pdf_document:
+    toc: true
+    toc_depth: 4
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r echo=FALSE, fig.height=5, fig.width=7, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(FactoMineR)#poureffectuerl'ACP
+library(factoextra)#pourvisualiserlesrésultatsissusdeFactoMineR
+library(tidyverse)
+library(corrplot)
+library(ppcor)
+library(cowplot)
+library(knitr)
+# Lire les données avec l'encodage UTF-8
+basket <- read.table("data/basket.csv", header = TRUE, sep = ";", fileEncoding = "UTF-8")
+
+teams_with_5_or_more_seasons <- basket %>%
+  group_by(Equipes) %>%
+  summarize(Number_of_Seasons = n_distinct(Saison)) %>%
+  filter(Number_of_Seasons >= 5) %>%
+  pull(Equipes)
+cholet <- basket %>%
+  filter(Equipes %in% c("Cholet"))
+cholet.active <- cholet %>% dplyr::select(-Saison, -Equipes)
+rownames(cholet) <- cholet$Saison
+
+  
+filtered_data <- basket %>%
+  filter(Equipes %in% teams_with_5_or_more_seasons)
+variance_by_team <- filtered_data %>%
+  group_by(Equipes) %>%
+  summarize(across(where(is.numeric), var, na.rm = TRUE))
+
 ```
 
-## R Markdown
+\newpage
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+# Introduction
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+## Contexte Général
 
-basket <- read.table(file="data/basket.csv",header = TRUE,sep=";")
-summary(basket)
+Le basket-ball est l’un des sports les plus populaires en France, et la Fédération Française de Basket-Ball (FFBB) organise chaque année la ligue ProA, qui regroupe les meilleures équipes masculines du pays. L’analyse des performances des équipes au fil des saisons est cruciale pour comprendre les facteurs déterminants du succès et pour orienter les stratégies futures des clubs. En utilisant des méthodes d’analyse descriptive telles que l’analyse en composantes principales (ACP), ce projet vise à explorer les différentes variables influençant le classement des équipes de la ProA.
 
-## Including Plots
+## Présentation des Données
 
-You can also embed plots, for example:
+Les données utilisées proviennent du fichier basket.csv et couvrent les saisons de 2008-2009 à 2012-2013. Chaque ligne du dataset représente les performances d'une équipe au cours d'une saison, avec les variables suivantes :
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+-   *Saison* : Année de la saison.
+-   *Équipes* : Nom de l'équipe.
+-   *Nombre.de.points* : Points obtenus au classement (2 pour une victoire, 1 pour une défaite).
+-   *Classement* : Position de l'équipe dans le classement final.
+-   *Nombre.Victoires* : Nombre total de victoires.
+-   *Nombre.Defaites* : Nombre total de défaites.
+-   *LF.tentes* et *LF.reussis* : Tentatives et réussites de lancers francs.
+-   *Deux.points.tentes* et *Deux.points.reussis* : Tentatives et réussites de paniers à 2 points.
+-   *Trois.pts.tentes* et *Trois.points.reussis* : Tentatives et réussites de paniers à 3 points.
+-   *Rebonds.O* et *Rebonds.D* : Nombre de rebonds offensifs et défensifs.
+-   *Contres.Pr* et *Contres.Ct* : Nombre de contres pour et contre.
+-   *Pd* : Passes décisives.
+-   *In* : Interceptions.
+-   *Bp* : Balles perdues.
+-   *Fautes* et *Fautes.pr* : Fautes provoquées et fautes personnelles.
+
+## Objectifs du Projet
+
+Le projet vise à analyser les différences dans les performances de l'équipe de Cholet au cours des cinq saisons étudiées, afin d'expliquer ses variations significatives dans le classement de la ProA. En se focalisant sur les fluctuations de classement de Cholet, l'objectif est de déterminer les facteurs qui influencent sa montée et sa descente au sein de la ligue. Les objectifs spécifiques sont les suivants :
+
+-   Identifier les Variations de Performance : Examiner les statistiques saisonnières de Cholet pour repérer les indicateurs de performance qui ont varié de manière significative entre les saisons.
+
+-   Analyser l'Impact des Statistiques Clés sur le Classement : Déterminer quelles variables (par exemple, le nombre de victoires, les réussites aux tirs, les rebonds) ont le plus influencé le classement de Cholet d'une saison à l'autre.
+
+-   Comprendre les Tendances Évolutives : Étudier les tendances saisonnières pour identifier des patterns ou des changements structurants dans les performances de l'équipe.
+
+\pagebreak
+
+Justification du Choix de l’Équipe Cholet
+
+L’équipe de Cholet a été sélectionnée en raison de sa participation continue à la ProA sur cinq saisons consécutives, ce qui permet d’analyser les variations significatives de son classement au fil des années. Comme le montre la Figure 1 ci-dessous, plusieurs équipes, telles que Strasbourg, ont également présenté des variations intéressantes dans leur classement. Cependant, nous avons décidé de concentrer notre étude sur Cholet car l’équipe a évolué d'une position de bas-milieu du classement à la première place pendant deux saisons consécutives, avant de redescendre à nouveau dans le bas-milieu. Cette trajectoire ascendante et descendante offre une occasion unique d’étudier les facteurs influençant de telles fluctuations de performance.
+
+```{r figure1, echo=FALSE, fig.cap=" Évolution du classement des équipes ayant été présentes au cours de la totalité des 5 saisons", fig.height=4, fig.width=6, message=FALSE, warning=FALSE}
+ggplot(filtered_data, aes(x = Saison, y = Classement, color = Equipes, group = Equipes)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_y_reverse(breaks = seq(min(filtered_data$Classement, na.rm = TRUE), 
+                               max(filtered_data$Classement, na.rm = TRUE))) +
+  labs(
+    x = "Saison",
+    y = "Classement",
+    color = "Équipe"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right"
+  )
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+\newpage
+
+# Analyses
+
+## Premières analyses
+
+### Analyse des Moyennes et de la Variabilité des Performances de Cholet
+
+Afin de mieux comprendre les performances de Cholet au fil des saisons, nous avons calculé deux indicateurs pour chaque variable, presentées dans la Table 1 :
+
+1.  La moyenne : qui donne une vision globale des performances moyennes de l’équipe sur la période étudiée.
+
+2.  Le coefficient de variation (CV) : qui mesure la variabilité relative des performances par rapport à leur moyenne, permettant ainsi de comparer des variables ayant des échelles différentes.
+
+```{r table1, echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(knitr)
+
+
+
+cm <- cholet.active %>% summarise_all(mean)
+
+
+cv <- cholet.active %>% summarise_all(~ (sd(.) / mean(.)) * 100)
+
+
+cm <- cm %>% mutate(Metric = "Moyenne")
+cv <- cv %>% mutate(Metric = "CV (%)")
+
+
+combined_table <- bind_rows(cm, cv)
+
+
+combined_table <- combined_table %>% 
+  pivot_longer(cols = -Metric, names_to = "Variable", values_to = "Valeur") %>%
+  pivot_wider(names_from = Metric, values_from = Valeur)
+
+kable(combined_table, 
+      caption = "Moyennes et Coefficients de Variation des Variables pour Cholet", 
+      digits = 2) 
+```
+
+Les fluctuations du classement (CV : 76.5%), défaites (CV : 33.6%) et des victoires (CV : 21.8%) sont attendues, car elles reflètent directement la trajectoire de Cholet, qui est monté et descendu dans le classement au cours des cinq saisons. Ce qui est vraiment intéressant, ce sont les autres variables présentant des fluctuations significatives, car elles pourraient avoir contribué à un nombre plus ou moins élevé de victoires et donc à une meilleure ou pire position au classement.
+
+-   Les tirs à 3 points (CV : 15.2%) : Une instabilité notable dans cette catégorie, tant au niveau des tentatives que des réussites, pourrait expliquer les difficultés de Cholet dans certaines saisons. Cela suggère une dépendance possible à l’efficacité des tirs longue distance.
+
+-   Les rebonds offensifs (CV : 17.3%) : Une variabilité importante dans cette statistique pourrait indiquer un impact direct sur la capacité de Cholet à générer des opportunités de second tir, ce qui est souvent déterminant dans les matchs serrés.
+
+-   Les contres subis (CV : 21.8%) : Une augmentation de ces chiffres dans certaines saisons pourrait refléter des faiblesses structurelles contre des défenses fortes.
+
+### Correlations
+
+Nous avons exclu les variables Classement, Nombre.de.points, Nombre.Victoires et Nombre.Defaites de notre analyse principale, car elles représentent des variables de résultats globaux directement liés entre elles. Le Classement résume les performances globales en fonction des victoires, des défaites, et des points obtenus. Ces variables étant fortement corrélées, elles risquent de masquer l’impact des autres facteurs explicatifs, comme les pourcentages de tirs ou les rebonds.Toutefois, les variables Classement, Nombre.de.points, Nombre.Victoires et Nombre.Defaites seront conservées comme variables supplémentaires dans l’ACP pour interpréter les résultats.
+
+```{r figure2, echo=FALSE, fig.cap="Corrélagramme initial : Analyse des relations entre toutes les variables explicatives", fig.height=5, fig.width=7, message=FALSE, warning=FALSE}
+data_for_analysis <- cholet.active %>%
+  dplyr::select(-Classement, -Nombre.de.points, -Nombre.Victoires, -Nombre.Defaites)
+correlation1 <- data_for_analysis %>% cor(.)
+correlation1 %>% corrplot
+
+```
+
+Le corrélagramme en Figure 2 montre que les variables de réussites et de tentatives, comme LF.tentes/LF.reussis, Deux.points.tentes/Deux.points.reussis, et Trois.points.tentes/Trois.points.reussis sont fortement corrélées (avec des coefficients supérieurs à 0.9). Cela reflète le fait que les réussites dépendent directement des tentatives, ce qui introduit une redondance dans les données.
+
+Pour affiner notre analyse et mieux interpréter les performances, nous avons choisi de :
+
+-   Conserver les colonnes de tentatives, qui donnent une idée de l’intensité et de la stratégie offensive.
+
+-   Remplacer les colonnes de réussites par des pourcentages, afin d’évaluer l’efficacité des actions.
+
+Ce choix permet de combiner deux dimensions essentielles :
+
+-   L’intensité, mesurée par le volume de tentatives (par exemple, le nombre de tirs à 2 points tentés).
+
+-   L’efficacité, exprimée en pourcentage de réussite, qui reflète la qualité d’exécution.
+
+Ces modifications aboutissent au corrélagramme présenté en Figure 3, où les variables de réussites ont été remplacées par leurs pourcentages correspondants.
+
+```{r figure3, echo=FALSE, fig.cap="Corrélagramme ajusté : Analyse des relations après transformation des variables de réussite", fig.height=5, fig.width=7, message=FALSE, warning=FALSE}
+
+
+
+cholet.active2 <- cholet %>%
+  mutate(
+    LF.pourcentage = LF.reussis / LF.tentes * 100,
+    Deux.points.pourcentage = Deux.points.reussis / Deux.points.tentes * 100,
+    Trois.points.pourcentage = Trois.points.reussis / Trois.pts.tentes * 100
+  )
+rownames(cholet.active2) <- cholet$Saison
+cholet.active2 <- cholet.active2 %>%
+  dplyr::select(-LF.reussis, -Deux.points.reussis, -Trois.points.reussis)
+cholet.active2 <- cholet.active2 %>%
+  dplyr::select(-Saison, -Equipes)
+
+
+data_for_analysis2 <- cholet.active2 %>%
+  dplyr::select(-Classement, -Nombre.de.points, -Nombre.Victoires, -Nombre.Defaites)
+correlation2 <- data_for_analysis2 %>% cor(.)
+correlation2 %>% corrplot
+
+```
+
+Le corrélogramme présenté en Figure 3 met en évidence plusieurs corrélations intéressantes entre les variables sélectionnées. Ces corrélations permettent de mieux comprendre les interactions entre les performances de Cholet en termes de tentatives, de réussites et d’efficacité globale. Voici les principaux résultats observés :
+
+-   Variables liées aux tentatives et réussites:
+
+    -   LF.tentes vs LF.pourcentage (0.369) : Une corrélation faible suggère que le nombre de lancers francs tentés par l’équipe n’est pas fortement lié à leur pourcentage de réussite. Cela pourrait indiquer une variabilité indépendante des volumes et de l’efficacité pour ce type de tir.
+
+    -   Deux.points.tentes vs Deux.points.pourcentage (-0.304) : Une corrélation négative modérée montre qu’un volume élevé de tentatives de tirs à 2 points est associé à une légère baisse du pourcentage de réussite. Cela pourrait être dû à une prise de tirs dans des conditions défavorables (par exemple, sous pression ou à distance).
+
+    -   Trois.pts.tentes vs Trois.points.pourcentage (-0.123) : Une corrélation négative faible, bien que présente, indique que les volumes de tentatives de tirs à 3 points n’ont qu’un impact limité sur leur pourcentage de réussite.
+
+-   Rebonds et pourcentages de réussite:
+
+    -   Rebonds.O vs Deux.points.pourcentage (-0.909) : Une forte corrélation négative met en évidence que des rebonds offensifs élevés coïncident avec une baisse significative de l’efficacité sur les tirs à 2 points. Cela pourrait refléter une stratégie d’attaque reposant sur des tentatives rapprochées suite à des rebonds, mais sans efficacité optimale.
+
+-   Interaction entre les taux de réussite:
+
+    -   Deux.points.pourcentage vs Trois.points.pourcentage (0.765) : Une corrélation positive forte entre ces deux variables suggère que les saisons où l’équipe est performante sur les tirs à 2 points le sont également sur les tirs à 3 points. Cela révèle une certaine cohérence globale dans l’efficacité offensive de l’équipe.
+
+Ces observations permettent de dégager des tendances clés dans les performances de Cholet, notamment en matière de cohérence offensive et des facteurs influençant l’efficacité des tirs. Pour approfondir cette analyse et mieux comprendre les relations multidimensionnelles entre les variables, nous allons recourir à une analyse en composantes principales (ACP).
+
+## ACP
+
+### Analyse en Composantes Principales (ACP)
+
+Pour approfondir notre analyse et explorer les relations multidimensionnelles entre les variables, nous procédons à une Analyse en Composantes Principales (ACP). Cette méthode statistique permet de simplifier les données en réduisant leur dimensionnalité tout en conservant la majorité de l'information pertinente. Elle identifie des axes principaux qui maximisent la variance expliquée par les variables actives.
+
+Dans cette étude, nous réalisons une ACP normée, où toutes les variables sont standardisées (moyenne égale à 0, variance égale à 1). Cela est essentiel car nos variables, telles que les pourcentages de réussite ou le nombre de tentatives, sont exprimées dans des unités différentes. La normalisation évite que des variables avec des échelles plus grandes ou des dispersions plus importantes dominent l'analyse, garantissant ainsi une contribution équitable de chaque variable.
+
+### Nombres d'axes
+
+Avant d'interpréter les résultats, nous déterminons le nombre d'axes principaux nécessaires pour expliquer une proportion significative de la variance totale. Ensuite, nous explorerons : 1. Les relations entre les variables actives. 2. La projection des individus (saisons) dans l'espace factoriel. 3. Une visualisation combinée à l’aide d’un biplot, intégrant variables et individus pour une interprétation globale.
+
+```{r echo=FALSE, fig.align='left', fig.cap="Sélection des dimensions pour l'analyse en composantes principales", fig.height=4, fig.width=6, message=FALSE, warning=FALSE}
+# Charger les librairies nécessaires
+library(FactoMineR)
+library(factoextra)
+
+res.pca <- PCA(cholet.active2, scale.unit = TRUE, graph = FALSE, quanti.sup = 1:4)
+
+fviz_eig(res.pca, addlabels = TRUE)
+
+```
+
+Basée sur le scree plot présenté en Figure 4, nous avons décidé d'étudier les quatre dimensions disponibles de l'ACP. Ces dimensions expliquent ensemble 100% de la variance totale, reflétant intégralement les relations entre les variables actives. Cette analyse nous permettra d'identifier les principaux facteurs influençant les performances de l'équipe de Cholet.
+
+\newpage
+
+### Cercle des corrélations
+
+#### Interprétation des cercles de corrélation (Figures 5 et 6)
+
+Les cercles de corrélation présentés dans les Figures 5 et 6 permettent de visualiser la contribution des variables actives à la construction des dimensions principales, ainsi que leurs relations mutuelles dans l’espace factoriel. Ces graphiques mettent en évidence les principales dimensions expliquant la variabilité des performances de l’équipe de Cholet.
+
+**Axe 1 (34.3 % de la variance) :** Ce premier axe est principalement défini par des variables liées à l’efficacité offensive, comme les pourcentages de réussite aux tirs. Les variables  Trois.points.pourcentage  et  Deux.points.pourcentage  sont fortement corrélées positivement à cet axe, reflétant une cohérence dans les performances de l’équipe lors des tirs à 2 et 3 points. À l’opposé, des variables telles que Trois.pts.tentes et LF.tentes, corrélées négativement, indiquent que des volumes élevés de tentatives sont souvent associés à une moindre efficacité.
+
+**Axe 2 (31.1 % de la variance) :** Le deuxième axe capte une dimension stratégique et défensive, avec une forte contribution de variables telles que Trois.pts.tentes, Contres.Pr et Pd (passes décisives). Il reflète des aspects tactiques, comme le volume de tentatives à 3 points et les efforts défensifs par les contres réalisés. Les variables liées aux fautes (Fautes) montrent également une association avec cet axe, soulignant l’importance de la discipline dans le jeu.
+
+**Axe 3 (23.2 % de la variance) :** Cet axe est dominé par des variables liées à la gestion de balle, notamment In (interceptions) et Bp (balles perdues), qui sont corrélées positivement. Ces variables reflètent des saisons où les interceptions ont été importantes, mais souvent accompagnées de pertes de balle. L’axe 3 capture donc une dimension organisationnelle dans les phases de jeu.
+
+**Axe 4 (11.4 % de la variance) :** Le dernier axe met en avant des aspects d'organisation et de discipline, dominés par les variables Pd et Fautes, qui montrent une forte corrélation positive. Cela reflète l’influence des passes décisives et des fautes (commises et provoquées) sur la performance globale de l’équipe.
+
+```{r echo=FALSE, fig.align='left', fig.cap="Cercle de corrélation des variables sur les dimensions 1 et 2", fig.height=4, fig.width=6, message=FALSE, warning=FALSE}
+fviz_pca_var(res.pca,axes=c(1,2),col.var="cos2", repel = TRUE)
+```
+
+```{r echo=FALSE, fig.align='left', fig.cap="Cercle de corrélation des variables sur les dimensions 3 et 4", fig.height=4, fig.width=6, message=FALSE, warning=FALSE}
+fviz_pca_var(res.pca,axes=c(3,4),col.var="cos2", repel = TRUE)
+```
+
+```{r eval=FALSE, include=FALSE}
+# Charger les librairies nécessaires
+library(FactoMineR)
+library(factoextra)
+
+# Ajouter les noms des lignes comme Saison
+rownames(cholet) <- cholet$Saison
+
+choletactive4 <- cholet %>%
+  dplyr::select(-Saison, -Equipes)
+
+
+# Réaliser l'ACP en ajoutant les variables supplémentaires
+res_pca <- PCA(choletactive4, 
+               quanti.sup = 1:4, # Indices des variables supplémentaires
+               graph = FALSE)
+
+
+# Visualiser les individus
+fviz_pca_ind(res_pca, repel = TRUE, col.ind = "cos2", 
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")) +
+  labs(title = "ACP : Projection des individus par saison")
+
+# Visualiser le biplot avec les variables supplémentaires
+fviz_pca_biplot(res_pca, repel = TRUE, 
+                col.var = "blue", 
+                col.ind = "red", 
+                addEllipses = FALSE) +
+  labs(title = "ACP : Biplot des individus et variables supplémentaires")
+
+# Visualisation du biplot avec variables supplémentaires
+fviz_pca_biplot(res_pca, col.var.sup = "darkgreen", repel = TRUE)
+
+
+
+```
+
+\newpage
+
+### Graphes des individus
+
+#### Interprétation des Figures 7 et 8 : Projection des saisons dans l’espace factoriel
+
+Les Figures 7 et 8 présentent la projection des saisons sur les dimensions principales issues de l’ACP. Chaque point correspond à une saison, dont la position relative reflète ses caractéristiques globales en termes de performances. Les couleurs des points indiquent la qualité de représentation (cos²) des saisons sur les dimensions sélectionnées, avec des couleurs plus vives signalant une meilleure représentation.
+
+**Interprétation de la Figure 7**
+
+Le plan défini par les axes 1 (34.3 % de la variance) et 2 (31.1 %) capture 65.4 % de la variabilité totale des performances des saisons, en mettant en lumière deux dimensions majeures :
+
+**Axe 1 : Performances offensives globales** Cet axe oppose les saisons avec des performances offensives élevées (efficacité aux tirs) à celles marquées par un volume de tentatives plus important et moins efficace. Les saisons 2011_2012 et 2012_2013 se situent à l’extrémité positive de cet axe, indiquant des performances globalement plus efficaces. À l’inverse, 2008_2009, positionnée dans la partie négative, est caractérisée par un volume élevé de tentatives avec une efficacité plus faible.
+
+**Axe 2 : Tactiques et discipline** Cet axe met en lumière des variables stratégiques et organisationnelles, comme les passes décisives et les fautes. La saison 2010_2011, située dans la partie positive de cet axe, reflète une organisation tactique marquée. 2012_2013, opposée à 2010_2011, est davantage associée à une stratégie basée sur des volumes élevés de jeu, avec moins de discipline.
+
+**Relations globales** Les saisons  2011_2012  et  2012_2013 forment un groupe relativement proche, indiquant des similarités dans leurs performances globales. La saison 2008_2009, isolée dans le plan, montre des caractéristiques distinctes par rapport aux autres.
+
+**Interprétation de la Figure 8**
+
+Le plan défini par les axes 3 (23.2 % de la variance) et 4 (11.4 %) capture 34.6 % de la variabilité totale et met en évidence des dimensions secondaires :
+
+**Axe 3 : Gestion de balle** Cet axe est dominé par des variables comme les interceptions (In) et les balles perdues (Bp). La saison 2009_2010, fortement associée à cet axe (cos² élevé), se distingue par une gestion de balle particulière : un nombre élevé d’interceptions mais également un volume élevé de pertes de balle. Les saisons 2010_2011 et 2012_2013 se trouvent dans la partie opposée, avec des performances de gestion de balle moins marquées.
+
+**Axe 4 : Organisation et discipline** Cet axe est principalement influencé par les fautes et les passes décisives (Pd), mettant en avant l’organisation tactique. La saison 2011_2012, fortement représentée sur cet axe, reflète une organisation marquée par une discipline accrue et un volume important de passes décisives. La saison 2012_2013 : Moins influencée par les variables d'organisation sur l’axe 4, elle reflète une saison où l’impact des fautes et des passes décisives était limité dans la performance globale. Les saisons  2008_2009 et 2009_2010 bien que situées dans des zones différentes sur l’axe 4, présentent des caractéristiques contrastées en termes de discipline et d’organisation tactique :
+
+-   2008_2009 est associée à une moindre organisation, comme en témoigne une représentation faible sur l’axe 4.
+
+-   2009_2010, bien représentée par cet axe, met en avant une performance stratégique marquée par des choix tactiques influents mais un volume élevé de pertes de balle.
+
+Ces analyses des individus permettent de relier les saisons de Cholet à des caractéristiques spécifiques de performance. En combinant cette visualisation avec les résultats précédents des cercles de corrélation (Figures 5 et 6), nous obtenons une vision complète des dynamiques à l’œuvre. Dans la section suivante, nous explorerons le biplot, qui combine variables et individus pour approfondir l’interprétation globale de l’ACP.
+
+```{r echo=FALSE, fig.align='left', fig.cap="Projection des saisons dans le plan factoriel 1-2 : Performances offensives et tactiques", fig.height=4, fig.width=6, message=FALSE, warning=FALSE}
+fviz_pca_ind (res.pca, col.ind = "cos2",axes=1:2,
+gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+repel = TRUE)
+```
+
+```{r echo=FALSE, fig.align='left', fig.cap="Projection des saisons dans le plan factoriel 3-4 : Gestion de balle et organisation tactique", fig.height=4, fig.width=6, message=FALSE, warning=FALSE}
+fviz_pca_ind (res.pca, col.ind = "cos2",axes=3:4,
+gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+repel = TRUE)
+```
+
+\newpage
+
+### Analyse des performances de Cholet en utilisant les biplots
+
+Pour comprendre pourquoi Cholet a atteint la première place en 2009-2010 et 2010-2011, et pourquoi ses performances ont décliné les autres saisons, nous nous appuyons sur les biplots présentés en Figures 9 et 10. Ces graphiques permettent de relier directement les saisons aux dimensions principales identifiées dans l’ACP, ainsi qu’aux variables explicatives actives et supplémentaires. Cela offre une perspective globale des stratégies qui ont fonctionné et de celles qui ont échoué.
+
+Le premier axe (34.3 % de la variance) représente les performances offensives globales, opposant des saisons marquées par une efficacité élevée aux tirs à celles avec un volume important de tentatives mais une faible efficacité. Les saisons 2009-2010 et 2010-2011, bien positionnées sur cet axe, montrent une gestion exemplaire des tirs, en particulier à 2 et 3 points, ainsi qu’une forte présence sur les rebonds offensifs. Ces facteurs ont permis de maximiser les opportunités de scorer. À l’inverse, les saisons comme 2008-2009 et 2012-2013, situées dans la partie opposée, sont caractérisées par des tentatives nombreuses mais inefficaces, ce qui reflète une stratégie moins fructueuse.
+
+Le deuxième axe (31.1 % de la variance) illustre les dimensions tactiques et organisationnelles, en lien avec des variables comme les passes décisives, les fautes et les rebonds défensifs. La saison 2010-2011 se distingue par sa discipline tactique et sa capacité à contrôler le jeu, avec un faible nombre de fautes et une organisation marquée par des passes décisives efficaces. En revanche, 2012-2013 se positionne à l’opposé, mettant en évidence une stratégie moins structurée et davantage basée sur des volumes élevés de jeu.
+
+Les dimensions secondaires (23.2 % et 11.4 % de variance respectivement) apportent une compréhension complémentaire. La gestion de balle, représentée par les interceptions et les balles perdues, est un facteur clé sur le troisième axe. La saison 2009-2010, par exemple, se distingue par un équilibre entre un nombre élevé d’interceptions et une gestion des pertes de balle. En revanche, les saisons comme 2010-2011 et 2012-2013 affichent des performances de gestion de balle moins marquées. Le quatrième axe, influencé par les fautes et les passes décisives, met en lumière des aspects organisationnels. La saison 2011-2012, fortement représentée sur cet axe, illustre une discipline accrue et une meilleure organisation, bien que cela n’ait pas suffi à compenser des performances offensives plus faibles.
+
+En somme, les meilleures performances de Cholet reposaient sur une combinaison d’efficacité offensive et de discipline tactique. Les saisons 2009-2010 et 2010-2011 ont maximisé ces deux dimensions, tandis que les autres saisons ont souffert soit d’un déséquilibre stratégique, soit d’une inefficacité dans l’exécution. Ces analyses montrent que le succès de l’équipe dépendait de sa capacité à maintenir un équilibre entre une attaque efficace, une défense solide et une organisation tactique cohérente.
+
+```{r echo=FALSE, fig.align='left', fig.cap="Biplot des Saisons, Variables Actives et Supplémentaires sur le Plan 1-2", fig.height=4, fig.width=6, message=FALSE, warning=FALSE}
+fviz_pca_biplot (res.pca,axes=1:2,
+gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+repel = TRUE)
+```
+
+```{r echo=FALSE, fig.align='left', fig.cap="Biplot des Saisons, Variables Actives et Supplémentaires sur le Plan 3-4", fig.height=4, fig.width=6, message=FALSE, warning=FALSE}
+fviz_pca_biplot (res.pca,axes=3:4,
+gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+repel = TRUE)
+```
+
+\newpage
+
+# Conclusion
+
+Ce projet avait pour objectif d’analyser les performances de l’équipe de Cholet au cours de cinq saisons consécutives en ProA afin de mieux comprendre les facteurs ayant conduit à ses variations de classement significatives. À travers une analyse approfondie des données et une application de l'ACP, nous avons répondu aux objectifs initiaux.
+
+**1. Identifier les Variations de Performance**
+
+L’analyse des statistiques saisonnières a révélé des variations notables dans les performances de Cholet. Les pourcentages de réussite aux tirs (**Deux.points.pourcentage**, **Trois.points.pourcentage**) et les **rebonds offensifs** ont été des indicateurs clés différenciant les saisons où l’équipe a excellé, comme en 2009-2010 et 2010-2011, des saisons où ses résultats étaient moins performants, comme en 2008-2009 et 2012-2013. Par ailleurs, les saisons ont aussi varié en termes de discipline tactique, reflétée par des variables comme les fautes et les passes décisives.
+
+**2. Analyser l’Impact des Statistiques Clés sur le Classement**
+
+Les biplots ont permis de relier directement les variables actives et supplémentaires au classement. Les résultats montrent que les performances offensives, particulièrement les pourcentages de réussite aux tirs et les rebonds, ont joué un rôle déterminant dans les saisons où Cholet a atteint la première place. En revanche, des stratégies moins équilibrées, comme un volume élevé de tentatives de tirs inefficaces, ont contribué aux saisons avec un classement plus bas. Les variables supplémentaires, comme le **nombre de victoires** et le **nombre de défaites**, ont également confirmé leur corrélation attendue avec le classement.
+
+**3. Comprendre les Tendances Évolutives**
+
+En étudiant les projections des saisons dans l’espace factoriel, nous avons observé des tendances claires. Les saisons où Cholet a réussi, notamment 2009-2010 et 2010-2011, étaient caractérisées par une efficacité offensive élevée et une discipline tactique accrue. Ces saisons se distinguent nettement des autres dans l’espace défini par les deux premières dimensions de l’ACP. Les résultats suggèrent que les saisons moins performantes ont été marquées par une désorganisation tactique ou une inefficacité offensive, ce qui souligne l’importance de maintenir un équilibre stratégique.
+
+### **Perspectives pour Travaux Futurs**
+
+Ce projet pourrait être approfondi en prenant en compte de nouvelles dimensions d’analyse pour mieux comprendre les variations des performances de Cholet. Une piste intéressante serait d’expliquer les variations des variables explicatives telles que les pourcentages de réussite aux tirs, les rebonds, ou encore les passes décisives, en analysant la composition de l’équipe chaque année. L’étude des joueurs présents chaque saison, leurs rôles respectifs, et leurs styles de jeu pourrait fournir des informations précieuses sur les stratégies employées et leur impact sur les performances globales.
+
+Un autre axe d’investigation serait d’élargir l’analyse aux autres équipes de la ligue ProA. En comparant les performances de Cholet avec celles de ses concurrents, on pourrait identifier des tendances générales dans la ligue, comme des évolutions stratégiques communes ou des facteurs externes influençant les performances collectives. Ces études complémentaires permettraient de replacer les résultats de Cholet dans un contexte plus large et d’obtenir une vue d’ensemble des dynamiques de la compétition.
